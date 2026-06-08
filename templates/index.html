@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Issue & PR Search</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; background: #f6f8fa; color: #24292f; padding: 24px; }
+        h1 { margin-bottom: 20px; font-size: 24px; }
+        .search-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; margin-bottom: 20px; }
+        .field { display: flex; flex-direction: column; gap: 4px; }
+        .field label { font-size: 13px; font-weight: 600; }
+        .field input { padding: 6px 10px; border: 1px solid #d0d7de; border-radius: 6px; font-size: 14px; }
+        .field input[type="text"] { width: 300px; }
+        button { padding: 6px 16px; background: #2da44e; color: #fff; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 600; height: 34px; align-self: end; }
+        button:hover { background: #218838; }
+        button:disabled { background: #94d3a2; cursor: wait; }
+        #status { margin-bottom: 12px; font-size: 14px; color: #57606a; }
+        #error { color: #cf222e; margin-bottom: 12px; font-size: 14px; }
+        table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #d0d7de; border-radius: 6px; overflow: hidden; }
+        th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #d0d7de; font-size: 13px; }
+        th { background: #f6f8fa; font-weight: 600; position: sticky; top: 0; }
+        td a { color: #0969da; text-decoration: none; }
+        td a:hover { text-decoration: underline; }
+        .type-pr { background: #2da44e; color: #fff; padding: 2px 6px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+        .type-issue { background: #8250df; color: #fff; padding: 2px 6px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+        .state-open { color: #2da44e; }
+        .state-closed { color: #cf222e; }
+        .results-wrap { max-height: 75vh; overflow-y: auto; border-radius: 6px; }
+    </style>
+</head>
+<body>
+    <h1>GitHub Issue & PR Search</h1>
+
+    <div class="search-form">
+        <div class="field">
+            <label for="repos">Repos (comma-separated, URLs or owner/repo)</label>
+            <textarea id="repos" rows="2" style="width:500px; padding:6px 10px; border:1px solid #d0d7de; border-radius:6px; font-size:14px; font-family:inherit; resize:vertical;" placeholder="e.g. facebook/react, https://github.com/torvalds/linux"></textarea>
+        </div>
+    </div>
+    <div class="search-form">
+        <div class="field">
+            <label for="keyword">Keyword</label>
+            <input type="text" id="keyword" placeholder='e.g. CVE-2024' />
+        </div>
+        <div class="field">
+            <label for="start">Start Date</label>
+            <input type="date" id="start" />
+        </div>
+        <div class="field">
+            <label for="end">End Date</label>
+            <input type="date" id="end" />
+        </div>
+        <button id="searchBtn" onclick="doSearch()">Search</button>
+    </div>
+
+    <div id="error"></div>
+    <div id="status"></div>
+    <div class="results-wrap">
+        <table id="results" style="display:none;">
+            <thead>
+                <tr>
+                    <th style="width:30px;">Done</th>
+                    <th>Repository</th>
+                    <th>Title</th>
+                    <th>State</th>
+                    <th>Created</th>
+                </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+        </table>
+    </div>
+
+    <script>
+        // Track investigated issues in localStorage
+        const investigated = new Set(JSON.parse(localStorage.getItem("investigated") || "[]"));
+
+        function toggleInvestigated(cb) {
+            const url = cb.dataset.url;
+            if (cb.checked) {
+                investigated.add(url);
+                cb.closest("tr").style.opacity = "0.5";
+            } else {
+                investigated.delete(url);
+                cb.closest("tr").style.opacity = "1";
+            }
+            localStorage.setItem("investigated", JSON.stringify([...investigated]));
+        }
+
+        // Default dates: last 30 days
+        const today = new Date();
+        const thirtyAgo = new Date(today);
+        thirtyAgo.setDate(today.getDate() - 30);
+        document.getElementById("end").value = fmt(today);
+        document.getElementById("start").value = fmt(thirtyAgo);
+
+        function fmt(d) {
+            return d.toISOString().split("T")[0];
+        }
+
+        async function doSearch() {
+            const keyword = document.getElementById("keyword").value.trim();
+            const repos = document.getElementById("repos").value.trim();
+            const start = document.getElementById("start").value;
+            const end = document.getElementById("end").value;
+            const btn = document.getElementById("searchBtn");
+            const status = document.getElementById("status");
+            const error = document.getElementById("error");
+            const table = document.getElementById("results");
+            const tbody = document.getElementById("tbody");
+
+            error.textContent = "";
+            if (!repos) { error.textContent = "Enter at least one repo."; return; }
+            if (!keyword) { error.textContent = "Enter a keyword."; return; }
+
+            btn.disabled = true;
+            btn.textContent = "Searching...";
+            status.textContent = "Searching GitHub... this may take a while for broad queries.";
+            tbody.innerHTML = "";
+            table.style.display = "none";
+
+            try {
+                const params = new URLSearchParams({ q: keyword, repos: repos, start_date: start, end_date: end });
+                const resp = await fetch("/api/search?" + params);
+                const data = await resp.json();
+
+                if (!resp.ok) {
+                    error.textContent = data.error || "Search failed.";
+                    status.textContent = "";
+                    return;
+                }
+
+                let statusMsg = `Found ${data.total} results.`;
+                if (data.warnings && data.warnings.length > 0) {
+                    statusMsg += " Warnings: " + data.warnings.join("; ");
+                }
+                status.textContent = statusMsg;
+
+                if (data.total === 0) {
+                    table.style.display = "none";
+                    return;
+                }
+
+                for (const r of data.results) {
+                    const tr = document.createElement("tr");
+                    const stateClass = r.state === "open" ? "state-open" : "state-closed";
+                    const created = r.created_at ? r.created_at.split("T")[0] : "";
+                    const checked = investigated.has(r.url);
+                    if (checked) tr.style.opacity = "0.5";
+                    tr.innerHTML = `
+                        <td style="text-align:center;"><input type="checkbox" data-url="${esc(r.url)}" ${checked ? "checked" : ""} onchange="toggleInvestigated(this)"></td>
+                        <td>${esc(r.repo)}</td>
+                        <td><a href="${esc(r.url)}" target="_blank">${esc(r.title)}</a></td>
+                        <td class="${stateClass}">${esc(r.state)}</td>
+                        <td>${esc(created)}</td>
+                    `;
+                    tbody.appendChild(tr);
+                }
+                table.style.display = "table";
+            } catch (e) {
+                error.textContent = "Request failed: " + e.message;
+                status.textContent = "";
+            } finally {
+                btn.disabled = false;
+                btn.textContent = "Search";
+            }
+        }
+
+        function esc(s) {
+            const d = document.createElement("div");
+            d.textContent = s;
+            return d.innerHTML;
+        }
+
+        // Allow Enter key to trigger search
+        document.getElementById("keyword").addEventListener("keydown", (e) => {
+            if (e.key === "Enter") doSearch();
+        });
+    </script>
+</body>
+</html>
