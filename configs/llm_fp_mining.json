@@ -1,0 +1,144 @@
+{
+  "date_range": {
+    "start": "2025-06-01",
+    "end": "2026-06-08"
+  },
+  "query_strategy": "paired",
+  "repos": [
+    "vllm-project/vllm",
+    "huggingface/transformers",
+    "ggml-org/llama.cpp",
+    "sgl-project/sglang",
+    "huggingface/text-generation-inference",
+    "NVIDIA/TensorRT-LLM",
+    "ollama/ollama",
+    "deepspeedai/DeepSpeed"
+  ],
+  "output": {
+    "candidates_csv": "data/candidates.csv",
+    "validated_csv": "data/validated_cases.csv"
+  },
+  "keyword_groups": {
+    "nondeterminism_terms": [
+      "nondeterministic",
+      "non-deterministic",
+      "deterministic",
+      "reproducible",
+      "same seed",
+      "temperature 0",
+      "different output",
+      "inconsistent"
+    ],
+    "fp_order_terms": [
+      "floating point",
+      "accumulation",
+      "reduction",
+      "rounding",
+      "precision",
+      "fp16",
+      "bf16",
+      "fp32",
+      "atomic",
+      "associativity"
+    ],
+    "trigger_terms": [
+      "speculative",
+      "quantization",
+      "MoE",
+      "expert",
+      "CUDA graph",
+      "prefix cache",
+      "paged attention",
+      "scheduler",
+      "preemption",
+      "backend"
+    ]
+  },
+  "known_prior_work": {
+    "batch_size_load": [
+      "batch size",
+      "batch-size",
+      "continuous batching",
+      "dynamic batching",
+      "batch invariant",
+      "batch-invariant",
+      "rmsnorm",
+      "split-k",
+      "split kv",
+      "split-kv",
+      "flashdecoding",
+      "chunked prefill",
+      "kv cache boundary"
+    ],
+    "tensor_parallel_all_reduce": [
+      "tensor parallel",
+      "tensor-parallel",
+      "tp size",
+      "all-reduce",
+      "allreduce",
+      "nccl",
+      "row-parallel",
+      "fsdp",
+      "rollout",
+      "tree all-reduce",
+      "tree-based invariant"
+    ]
+  },
+  "candidate_triggers": {
+    "speculative_decoding": [
+      "speculative decoding",
+      "draft model",
+      "verify",
+      "verifier",
+      "accepted tokens",
+      "acceptance"
+    ],
+    "quantization_paths": [
+      "quantization",
+      "fp8",
+      "int4",
+      "int8",
+      "awq",
+      "gptq",
+      "dequant",
+      "scale",
+      "mixed accumulator"
+    ],
+    "moe_execution": [
+      "moe",
+      "mixture of experts",
+      "expert",
+      "router",
+      "routing",
+      "all-to-all",
+      "load balancing"
+    ],
+    "runtime_scheduling": [
+      "scheduler",
+      "preemption",
+      "request migration",
+      "cuda graph",
+      "eager",
+      "fallback",
+      "kernel dispatch"
+    ],
+    "memory_layout": [
+      "paged attention",
+      "block table",
+      "prefix cache",
+      "cache eviction",
+      "cache compaction",
+      "page allocation"
+    ],
+    "cross_backend_architecture": [
+      "backend",
+      "cuda",
+      "hip",
+      "metal",
+      "cpu",
+      "gpu architecture",
+      "autotune",
+      "library version"
+    ]
+  }
+}

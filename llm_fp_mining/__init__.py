@@ -1,0 +1,5 @@
+"""GitHub mining pipeline for LLM floating-point-order nondeterminism."""
+
+__all__ = ["__version__"]
+
+__version__ = "0.1.0"
