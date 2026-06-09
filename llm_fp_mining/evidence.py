@@ -83,7 +83,7 @@ def find_fixed_version_reference(texts: list[str]) -> FixEvidence | None:
 def find_maintainer_confirmation(comments: list[dict[str, Any]]) -> FixEvidence | None:
     for comment in comments:
         association = comment.get("author_association", "")
-        body = comment.get("body", "")
+        body = _text(comment.get("body"))
         if association not in MAINTAINER_ASSOCIATIONS:
             continue
         if re.search(r"\b(fixed|resolved|patched|addressed)\b", body, re.I):
@@ -92,8 +92,8 @@ def find_maintainer_confirmation(comments: list[dict[str, Any]]) -> FixEvidence 
 
 
 def _issue_texts(issue: dict[str, Any], comments: list[dict[str, Any]]) -> list[str]:
-    texts = [issue.get("title", ""), issue.get("body", "")]
-    texts.extend(comment.get("body", "") for comment in comments)
+    texts = [_text(issue.get("title")), _text(issue.get("body"))]
+    texts.extend(_text(comment.get("body")) for comment in comments)
     return [text for text in texts if text]
 
 
@@ -109,3 +109,7 @@ def _shorten(text: str, limit: int = 180) -> str:
     if len(compact) <= limit:
         return compact
     return compact[: limit - 3] + "..."
+
+
+def _text(value: Any) -> str:
+    return "" if value is None else str(value)

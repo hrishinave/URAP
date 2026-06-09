@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import csv
+import json
 import logging
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .classifier import classify_text
 from .config import MiningConfig
@@ -51,13 +52,31 @@ def collect_candidates(
     include_without_fix: bool = False,
     fetch_comments: bool = True,
     per_page: int = DEFAULT_PER_PAGE,
+    on_row: Callable[[dict[str, str]], None] | None = None,
+    search_cache_path: str | Path | None = None,
+    resume_search: bool = False,
 ) -> list[dict[str, str]]:
     specs = build_query_specs(config, repos=repos)
     if max_queries is not None:
         specs = specs[:max_queries]
 
     issue_matches: dict[str, dict[str, Any]] = {}
+    completed_queries: set[str] = set()
+    if resume_search and search_cache_path is not None and Path(search_cache_path).exists():
+        issue_matches, completed_queries = read_search_cache(search_cache_path)
+        logger.info(
+            "Loaded search checkpoint with %d completed queries and %d unique candidate issues from %s",
+            len(completed_queries),
+            len(issue_matches),
+            search_cache_path,
+        )
+
     for index, spec in enumerate(specs, start=1):
+        query = build_search_query(spec, config.start_date, config.end_date)
+        if query in completed_queries:
+            logger.info("Skipping cached query %d/%d for %s: %s", index, len(specs), spec.repo, ", ".join(spec.terms))
+            continue
+
         logger.info("Running query %d/%d for %s: %s", index, len(specs), spec.repo, ", ".join(spec.terms))
         items = search_with_bisection(client, spec, config.start_date, config.end_date, per_page=per_page)
         for item in items:
@@ -75,13 +94,21 @@ def collect_candidates(
                 },
             )
             match["matched_terms"].update(spec.terms)
-            match["matched_queries"].add(build_search_query(spec, config.start_date, config.end_date))
+            match["matched_queries"].add(query)
 
+        completed_queries.add(query)
+        if search_cache_path is not None:
+            write_search_cache(issue_matches, completed_queries, search_cache_path)
+
+    logger.info("Search phase found %d unique candidate issues; fetching details and fix evidence", len(issue_matches))
     rows = []
-    for match in issue_matches.values():
+    for index, match in enumerate(issue_matches.values(), start=1):
+        logger.info("Enriching issue %d/%d: %s#%s", index, len(issue_matches), match["repo"], match["number"])
         row = build_candidate_row(config, client, match, include_without_fix=include_without_fix, fetch_comments=fetch_comments)
         if row is not None:
             rows.append(row)
+            if on_row is not None:
+                on_row(row)
     rows.sort(key=lambda row: (row["repo"].lower(), int(row["issue_number"])))
     return rows
 
@@ -127,8 +154,8 @@ def build_candidate_row(
     comments = client.get_issue_comments(repo, number) if fetch_comments else []
 
     full_text = "\n".join(
-        [issue.get("title", ""), issue.get("body", "")]
-        + [comment.get("body", "") for comment in comments]
+        [_text(issue.get("title")), _text(issue.get("body"))]
+        + [_text(comment.get("body")) for comment in comments]
     )
     classification = classify_text(full_text, config)
     evidence = find_fix_evidence(repo, issue, comments, client=client)
@@ -137,18 +164,18 @@ def build_candidate_row(
 
     matched_terms = set(match["matched_terms"])
     matched_terms.update(classification.matched_terms)
-    labels = [label.get("name", "") for label in issue.get("labels", []) if label.get("name")]
+    labels = [_text(label.get("name")) for label in issue.get("labels", []) if label.get("name")]
 
     trigger_category = ";".join(classification.suspected_trigger)
     return {
         "repo": repo,
         "issue_number": str(number),
-        "issue_url": issue.get("html_url") or item.get("html_url", ""),
-        "title": issue.get("title") or item.get("title", ""),
-        "state": issue.get("state", item.get("state", "")),
-        "created_at": issue.get("created_at", item.get("created_at", "")),
-        "closed_at": issue.get("closed_at", ""),
-        "updated_at": issue.get("updated_at", item.get("updated_at", "")),
+        "issue_url": _text(issue.get("html_url") or item.get("html_url")),
+        "title": _text(issue.get("title") or item.get("title")),
+        "state": _text(issue.get("state", item.get("state", ""))),
+        "created_at": _text(issue.get("created_at", item.get("created_at", ""))),
+        "closed_at": _text(issue.get("closed_at")),
+        "updated_at": _text(issue.get("updated_at", item.get("updated_at", ""))),
         "matched_queries": "\n".join(sorted(match["matched_queries"])),
         "matched_terms": ";".join(sorted(matched_terms, key=str.lower)),
         "suspected_trigger": trigger_category,
@@ -169,6 +196,54 @@ def build_candidate_row(
 
 def write_candidates_csv(rows: list[dict[str, str]], path: str | Path) -> None:
     write_csv(rows, path, CANDIDATE_FIELDS)
+
+
+def append_candidate_csv(row: dict[str, str], path: str | Path) -> None:
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("a", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=CANDIDATE_FIELDS, extrasaction="ignore")
+        writer.writerow(row)
+
+
+def write_search_cache(issue_matches: dict[str, dict[str, Any]], completed_queries: set[str], path: str | Path) -> None:
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "version": 1,
+        "completed_queries": sorted(completed_queries),
+        "issues": [
+            {
+                "repo": match["repo"],
+                "number": match["number"],
+                "item": match["item"],
+                "matched_terms": sorted(match["matched_terms"]),
+                "matched_queries": sorted(match["matched_queries"]),
+            }
+            for match in issue_matches.values()
+        ],
+    }
+    temp_path = output.with_suffix(output.suffix + ".tmp")
+    with temp_path.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, sort_keys=True)
+    temp_path.replace(output)
+
+
+def read_search_cache(path: str | Path) -> tuple[dict[str, dict[str, Any]], set[str]]:
+    with Path(path).open("r", encoding="utf-8") as f:
+        payload = json.load(f)
+
+    issue_matches = {}
+    for match in payload.get("issues", []):
+        key = f"{match['repo']}#{match['number']}"
+        issue_matches[key] = {
+            "repo": match["repo"],
+            "number": int(match["number"]),
+            "item": match["item"],
+            "matched_terms": set(match.get("matched_terms", [])),
+            "matched_queries": set(match.get("matched_queries", [])),
+        }
+    return issue_matches, set(payload.get("completed_queries", []))
 
 
 def export_validated_cases(review_csv: str | Path, output_csv: str | Path) -> list[dict[str, str]]:
@@ -202,6 +277,10 @@ def repo_from_item(item: dict[str, Any]) -> str:
     if len(parts) >= 5 and parts[2] == "github.com":
         return f"{parts[3]}/{parts[4]}"
     return ""
+
+
+def _text(value: Any) -> str:
+    return "" if value is None else str(value)
 
 
 def _truthy(value: str) -> bool:

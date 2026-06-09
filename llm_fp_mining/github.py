@@ -14,6 +14,10 @@ DEFAULT_PER_PAGE = 100
 logger = logging.getLogger(__name__)
 
 
+class GitHubNotFoundError(RuntimeError):
+    """Raised for GitHub 404s that callers may intentionally treat as absent."""
+
+
 def parse_link_header(header: str | None) -> dict[str, str]:
     links: dict[str, str] = {}
     if not header:
@@ -117,6 +121,9 @@ class GitHubClient:
                 self._update_rate_limit(resp.headers)
                 self._handle_rate_limit_response(resp)
                 continue
+
+            if resp.status_code == 404:
+                raise GitHubNotFoundError(f"GitHub resource not found: {url}")
 
             logger.error("HTTP %d from %s: %s", resp.status_code, url, _response_body(resp))
             resp.raise_for_status()

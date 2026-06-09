@@ -1,7 +1,7 @@
 import unittest
 import warnings
 
-from llm_fp_mining.github import GitHubClient, parse_link_header
+from llm_fp_mining.github import GitHubClient, GitHubNotFoundError, parse_link_header
 
 
 warnings.filterwarnings("ignore", message="urllib3 v2 only supports OpenSSL.*")
@@ -53,6 +53,15 @@ class GitHubClientTests(unittest.TestCase):
         self.assertEqual(data, {"ok": True})
         self.assertEqual(len(session.calls), 2)
         self.assertEqual(sleeps, [1])
+
+    def test_pull_404_raises_not_found_without_retry(self):
+        session = FakeSession([FakeResponse(404, {"message": "Not Found"})])
+        client = GitHubClient(token="token", session=session)
+
+        with self.assertRaises(GitHubNotFoundError):
+            client.get_pull("vllm-project/vllm", 41153)
+
+        self.assertEqual(len(session.calls), 1)
 
 
 if __name__ == "__main__":

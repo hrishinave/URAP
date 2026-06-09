@@ -24,6 +24,23 @@ class ClassifierTests(unittest.TestCase):
         self.assertEqual(result.novelty_status, "candidate_new_trigger")
         self.assertIn("speculative_decoding", result.suspected_trigger)
 
+    def test_triton_autotuner_is_not_prior_work(self):
+        text = "[Bug]: vLLM produces non-deterministic output due to Triton autotuner."
+
+        result = classify_text(text, self.config)
+
+        self.assertEqual(result.novelty_status, "candidate_new_trigger")
+        self.assertIn("cross_backend_architecture", result.suspected_trigger)
+        self.assertEqual(result.prior_work_match, ())
+
+    def test_tensor_parallel_all_reduce_is_prior_work(self):
+        text = "Changing tensor parallel size changes all-reduce order and gives different output."
+
+        result = classify_text(text, self.config)
+
+        self.assertEqual(result.novelty_status, "known_prior_work")
+        self.assertIn("tensor_parallel_all_reduce", result.prior_work_match)
+
     def test_invalid_without_fp_or_trigger_path(self):
         text = "The page renders inconsistently in the browser."
 

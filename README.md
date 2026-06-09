@@ -28,6 +28,20 @@ The default output is `data/candidates.csv`. For a small smoke run:
 python -m llm_fp_mining.cli collect --repo vllm-project/vllm --max-queries 5 --include-without-fix
 ```
 
+For a full run, write to an explicit output path:
+
+```bash
+python -m llm_fp_mining.cli collect --include-without-fix --output data/candidates_full.csv
+```
+
+The collector writes a search checkpoint next to the output CSV, for example
+`data/candidates_full.search_cache.json`. If the process stops after some
+queries finish, resume the search phase with:
+
+```bash
+python -m llm_fp_mining.cli collect --include-without-fix --output data/candidates_full.csv --resume-search
+```
+
 ## Manual Review
 
 Edit `data/candidates.csv` and fill:

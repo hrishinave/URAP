@@ -3,7 +3,7 @@ import tempfile
 from pathlib import Path
 import unittest
 
-from llm_fp_mining.pipeline import CANDIDATE_FIELDS, export_validated_cases, write_candidates_csv
+from llm_fp_mining.pipeline import CANDIDATE_FIELDS, append_candidate_csv, export_validated_cases, write_candidates_csv
 
 
 class ExportTests(unittest.TestCase):
@@ -26,6 +26,18 @@ class ExportTests(unittest.TestCase):
                 csv_rows = list(csv.DictReader(f))
             self.assertEqual(len(csv_rows), 1)
             self.assertEqual(csv_rows[0]["issue_number"], "1")
+
+    def test_append_candidate_csv_adds_row_after_header(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "candidates.csv"
+            write_candidates_csv([], output)
+            append_candidate_csv(_row("42", "yes", "linked_merged_pr"), output)
+
+            with output.open("r", encoding="utf-8", newline="") as f:
+                csv_rows = list(csv.DictReader(f))
+
+            self.assertEqual(len(csv_rows), 1)
+            self.assertEqual(csv_rows[0]["issue_number"], "42")
 
 
 def _row(number, is_valid, evidence_type):

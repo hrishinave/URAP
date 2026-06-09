@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .config import DEFAULT_CONFIG_PATH, load_config, resolve_output_path
 from .github import DEFAULT_PER_PAGE, GitHubClient
-from .pipeline import collect_candidates, export_validated_cases, write_candidates_csv
+from .pipeline import append_candidate_csv, collect_candidates, export_validated_cases, write_candidates_csv
 from .queries import build_query_specs, build_search_query
 
 
@@ -38,6 +38,8 @@ def build_parser() -> argparse.ArgumentParser:
     collect.add_argument("--no-comments", action="store_true", help="Skip fetching issue comments.")
     collect.add_argument("--per-page", type=int, default=DEFAULT_PER_PAGE)
     collect.add_argument("--dry-run", action="store_true", help="Print generated queries without calling GitHub.")
+    collect.add_argument("--search-cache", help="Search checkpoint path. Defaults next to the output CSV.")
+    collect.add_argument("--resume-search", action="store_true", help="Resume completed search queries from the checkpoint.")
 
     export = subparsers.add_parser("export-validated", help="Export manually labeled valid rows.")
     export.add_argument("--review-csv", help="Reviewed candidates CSV path. Defaults to config output.candidates_csv.")
@@ -56,6 +58,9 @@ def run_collect(args: argparse.Namespace, config) -> int:
         print(f"Generated {len(specs)} queries.")
         return 0
 
+    output = resolve_output_path(config, args.output, config.candidates_csv)
+    search_cache = resolve_output_path(config, args.search_cache, default_search_cache_path(output))
+    write_candidates_csv([], output)
     client = GitHubClient()
     rows = collect_candidates(
         config,
@@ -65,10 +70,12 @@ def run_collect(args: argparse.Namespace, config) -> int:
         include_without_fix=args.include_without_fix,
         fetch_comments=not args.no_comments,
         per_page=args.per_page,
+        on_row=lambda row: append_candidate_csv(row, output),
+        search_cache_path=search_cache,
+        resume_search=args.resume_search,
     )
-    output = resolve_output_path(config, args.output, config.candidates_csv)
-    write_candidates_csv(rows, output)
     print(f"Wrote {len(rows)} candidate rows to {output}")
+    print(f"Search checkpoint: {search_cache}")
     return 0
 
 
@@ -78,6 +85,10 @@ def run_export_validated(args: argparse.Namespace, config) -> int:
     rows = export_validated_cases(Path(review_csv), Path(output))
     print(f"Wrote {len(rows)} validated rows to {output}")
     return 0
+
+
+def default_search_cache_path(output: Path) -> Path:
+    return output.with_name(f"{output.stem}.search_cache.json")
 
 
 if __name__ == "__main__":

@@ -138,6 +138,9 @@
       "cpu",
       "gpu architecture",
       "autotune",
+      "autotuner",
+      "autotuning",
+      "triton autotuner",
       "library version"
     ]
   }

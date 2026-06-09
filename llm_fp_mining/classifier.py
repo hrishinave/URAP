@@ -5,6 +5,31 @@ from dataclasses import dataclass
 from .config import MiningConfig
 
 
+STRONG_PRIOR_WORK_TERMS = {
+    "batch_size_load": (
+        "continuous batching",
+        "dynamic batching",
+        "batch invariant",
+        "batch-invariant",
+        "split kv",
+        "split-kv",
+        "flashdecoding",
+        "chunked prefill",
+        "kv cache boundary",
+    ),
+    "tensor_parallel_all_reduce": (
+        "tensor parallel",
+        "tensor-parallel",
+        "tp size",
+        "all-reduce",
+        "allreduce",
+        "row-parallel",
+        "tree all-reduce",
+        "tree-based invariant",
+    ),
+}
+
+
 @dataclass(frozen=True)
 class Classification:
     matched_terms: tuple[str, ...]
@@ -20,7 +45,8 @@ def classify_text(text: str, config: MiningConfig) -> Classification:
 
     prior_work_match = []
     for category, terms in config.known_prior_work.items():
-        if find_terms(text, terms):
+        prior_terms = STRONG_PRIOR_WORK_TERMS.get(category, terms)
+        if find_terms(text, prior_terms):
             prior_work_match.append(category)
 
     suspected_trigger = []
