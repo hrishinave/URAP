@@ -28,6 +28,8 @@
         .state-open { color: #2da44e; }
         .state-closed { color: #cf222e; }
         .results-wrap { max-height: 75vh; overflow-y: auto; border-radius: 6px; }
+        .check-cell { cursor: pointer; }
+        .check-cell input[type="checkbox"] { width: 20px; height: 20px; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -41,8 +43,8 @@
     </div>
     <div class="search-form">
         <div class="field">
-            <label for="keyword">Keyword</label>
-            <input type="text" id="keyword" placeholder='e.g. CVE-2024' />
+            <label for="keyword">Keyword(s) — comma-separated</label>
+            <input type="text" id="keyword" placeholder='e.g. temperature, determinism' />
         </div>
         <div class="field">
             <label for="start">Start Date</label>
@@ -51,6 +53,14 @@
         <div class="field">
             <label for="end">End Date</label>
             <input type="date" id="end" />
+        </div>
+        <div class="field">
+            <label for="state">State</label>
+            <select id="state" style="padding:6px 10px; border:1px solid #d0d7de; border-radius:6px; font-size:14px; height:34px;">
+                <option value="">All</option>
+                <option value="open">Open</option>
+                <option value="closed">Closed</option>
+            </select>
         </div>
         <button id="searchBtn" onclick="doSearch()">Search</button>
     </div>
@@ -104,6 +114,7 @@
             const repos = document.getElementById("repos").value.trim();
             const start = document.getElementById("start").value;
             const end = document.getElementById("end").value;
+            const state = document.getElementById("state").value;
             const btn = document.getElementById("searchBtn");
             const status = document.getElementById("status");
             const error = document.getElementById("error");
@@ -122,6 +133,7 @@
 
             try {
                 const params = new URLSearchParams({ q: keyword, repos: repos, start_date: start, end_date: end });
+                if (state) params.set("state", state);
                 const resp = await fetch("/api/search?" + params);
                 const data = await resp.json();
 
@@ -149,7 +161,7 @@
                     const checked = investigated.has(r.url);
                     if (checked) tr.style.opacity = "0.5";
                     tr.innerHTML = `
-                        <td style="text-align:center;"><input type="checkbox" data-url="${esc(r.url)}" ${checked ? "checked" : ""} onchange="toggleInvestigated(this)"></td>
+                        <td class="check-cell" style="text-align:center;" onclick="this.querySelector('input').click()"><input type="checkbox" data-url="${esc(r.url)}" ${checked ? "checked" : ""} onchange="toggleInvestigated(this)" onclick="event.stopPropagation()"></td>
                         <td>${esc(r.repo)}</td>
                         <td><a href="${esc(r.url)}" target="_blank">${esc(r.title)}</a></td>
                         <td class="${stateClass}">${esc(r.state)}</td>
