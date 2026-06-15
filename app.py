@@ -155,14 +155,16 @@ def paginate_query(query, per_page=DEFAULT_PER_PAGE):
     return items, total_count
 
 
-def _search_repo(keyword, repo, start_date, end_date, per_page=DEFAULT_PER_PAGE):
+def _search_repo(keywords, repo, start_date, end_date, state=None, per_page=DEFAULT_PER_PAGE):
     """Search issues in a specific repo with date-range bisection."""
     all_items = []
     stack = [(start_date, end_date)]
+    keyword_part = " ".join(f'"{kw}"' for kw in keywords)
+    state_part = f" is:{state}" if state else ""
 
     while stack:
         s, e = stack.pop()
-        query = f'"{keyword}" is:issue repo:{repo} created:{s}..{e}'
+        query = f'{keyword_part} is:issue repo:{repo}{state_part} created:{s}..{e}'
         logger.info("Searching: %s", query)
 
         # Fetch first page to check total_count
@@ -208,14 +210,14 @@ def _search_repo(keyword, repo, start_date, end_date, per_page=DEFAULT_PER_PAGE)
     return all_items
 
 
-def search_github(keyword, repos, start_date, end_date, per_page=DEFAULT_PER_PAGE):
+def search_github(keywords, repos, start_date, end_date, state=None, per_page=DEFAULT_PER_PAGE):
     """Search issues across the given repos."""
     items = []
     errors = []
     for repo in repos:
-        logger.info("Searching repo: %s", repo)
+        logger.info("Searching repo: %s for keywords: %s state: %s", repo, keywords, state or "all")
         try:
-            items += _search_repo(keyword, repo, start_date, end_date, per_page)
+            items += _search_repo(keywords, repo, start_date, end_date, state=state, per_page=per_page)
         except Exception as exc:
             msg = f"{repo}: {exc}"
             logger.error("Failed to search %s", msg)
@@ -254,9 +256,10 @@ def api_search():
     repos_raw = request.args.get("repos", "").strip()
     start = request.args.get("start_date", "").strip()
     end = request.args.get("end_date", "").strip()
+    state = request.args.get("state", "").strip() or None
 
     if not keyword:
-        return jsonify({"error": "Missing keyword"}), 400
+        return jsonify({"error": "Missing keyword(s)"}), 400
     if not repos_raw:
         return jsonify({"error": "Missing repos"}), 400
 
@@ -288,8 +291,13 @@ def api_search():
     if not token:
         return jsonify({"error": "GITHUB_TOKEN environment variable not set"}), 500
 
+    # Parse keywords: comma-separated
+    keywords = [k.strip() for k in keyword.split(",") if k.strip()]
+    if not keywords:
+        return jsonify({"error": "Missing keyword(s)"}), 400
+
     try:
-        raw_items, search_errors = search_github(keyword, repos, start_date, end_date)
+        raw_items, search_errors = search_github(keywords, repos, start_date, end_date, state=state)
     except Exception as exc:
         logger.exception("Search failed")
         return jsonify({"error": str(exc)}), 500
@@ -297,12 +305,13 @@ def api_search():
     # Deduplicate by URL
     seen = set()
     results = []
+    keyword_label = ", ".join(keywords)
     for item in raw_items:
         url = item.get("html_url", "")
         if url in seen:
             continue
         seen.add(url)
-        results.append(transform_item(item, keyword))
+        results.append(transform_item(item, keyword_label))
 
     resp = {"total": len(results), "results": results}
     if search_errors:
